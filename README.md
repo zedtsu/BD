@@ -143,3 +143,71 @@ INSERT INTO "order" (order_id, customer_id, order_date, order_cost, car_washer_i
 (3, 3, '16.09 2025', 1200, 1),
 (4, 4, '14.09 2025', 550, 2);
 ```
+
+# Лабораторная 2
+
+## Создание функции для вывода заказов по дате с сортировкой по цене и дате.
+
+```sql
+-- Создание представления для функции order_details
+CREATE OR REPLACE VIEW shugaley2271.order_full_info AS
+SELECT
+    o.order_id,
+    cw.type_of_service,
+    o.order_cost,
+    c.full_name AS customer_name,
+    o.order_date,
+    c.phone AS customer_phone,
+    c.car_number,
+    c.car_stamp,
+    c.car_model,
+    wash.address AS car_wash_address,
+    washer.full_name AS washer_name,
+    washer.phone AS washer_phone
+FROM shugaley2271."order" o
+JOIN shugaley2271.customer c
+    ON c.customer_id = o.customer_id
+JOIN shugaley2271.car_washer washer
+    ON washer.car_washer_id = o.car_washer_id
+JOIN shugaley2271.car_wash wash
+    ON wash.car_wash_id = washer.car_wash_id
+JOIN shugaley2271.car_wash cw
+    ON cw.car_wash_id = wash.car_wash_id;
+```
+
+```sql
+CREATE OR REPLACE FUNCTION shugaley2271.order_details(p_date VARCHAR(100))
+RETURNS TABLE (
+    order_id INT,
+    type_of_service VARCHAR(100),
+    order_cost NUMERIC,
+    customer_name VARCHAR(100),
+    order_date VARCHAR(100)
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        o.order_id,
+        cw.type_of_service,
+        o.order_cost,
+        c.full_name AS customer_name,
+        o.order_date AS order_date
+    FROM shugaley2271.order o
+    JOIN shugaley2271.customer c
+        ON c.customer_id = o.customer_id
+    JOIN shugaley2271.car_wash cw
+        ON cw.car_wash_id = o.car_washer_id
+    WHERE o.order_date = p_date
+    ORDER BY 
+        o.order_cost,
+        o.order_date;
+END;
+$$;
+
+SELECT * FROM shugaley2271.order_details('14.09.2025');
+
+
+INSERT INTO shugaley2271.order(customer_id, order_id, order_date, order_cost)
+```
