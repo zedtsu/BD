@@ -211,3 +211,51 @@ SELECT * FROM shugaley2271.order_details('14.09.2025');
 
 INSERT INTO shugaley2271.order(customer_id, order_id, order_date, order_cost)
 ```
+
+# Лабораторная 4
+
+## Создание генератора, сложного запроса и оптимизация его через индекс.
+
+```sql
+INSERT INTO shugaley2271.order(customer_id, order_date, order_cost, car_washer_id)
+SELECT 
+    floor(random() * 4 + 1)::int AS customer_id,
+    to_char(NOW() - (random() * (INTERVAL '365 days')), 'DD.MM.YYYY') AS order_date,
+    CASE WHEN random() <= 0.8 THEN (floor(random() * 200) + 1000)::int ELSE (floor(random() * 1000) + 300)::int END AS order_cost,
+    floor(random() * 4 + 1)::int AS car_washer_id
+FROM generate_series(1, 20000);
+
+SELECT * FROM shugaley2271.order
+
+CREATE OR REPLACE FUNCTION safe_to_date(text)
+RETURNS date
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT TO_DATE($1, 'DD.MM.YYYY');
+$$;
+
+-- Создаем индекс с использованием safe_to_date
+CREATE INDEX idx_order_date_safe ON shugaley2271.order 
+USING btree (safe_to_date(order_date));
+
+-- И составной индекс
+CREATE INDEX idx_order_date_cost_safe ON shugaley2271.order 
+USING btree (safe_to_date(order_date), order_cost);
+
+-- В запросе ТОЖЕ используем safe_to_date
+EXPLAIN ANALYZE
+SELECT 
+    cw.address,    
+    COUNT(o.order_id) AS total_orders,    
+    SUM(o.order_cost) AS total_revenue 
+FROM shugaley2271.order o
+LEFT JOIN shugaley2271.car_washer cw_er ON o.car_washer_id = cw_er.car_washer_id
+LEFT JOIN shugaley2271.car_wash cw ON cw_er.car_wash_id = cw.car_wash_id
+WHERE    
+    safe_to_date(o.order_date) >= DATE_TRUNC('month', NOW()) - INTERVAL '3 months'
+    AND safe_to_date(o.order_date) < DATE_TRUNC('month', NOW())
+    AND o.order_cost BETWEEN 1000 AND 1200
+GROUP BY cw.address
+ORDER BY total_revenue DESC;
+```
