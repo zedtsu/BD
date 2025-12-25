@@ -59,3 +59,87 @@
 
 ---
 
+# Лабораторная 2
+
+# SQL-код для создания и заполнения таблиц системы автомойки
+
+## Полный код PostgreSQL
+
+```sql
+-- 1. Создание таблицы customer
+CREATE TABLE customer (
+    customer_id INTEGER PRIMARY KEY,
+    full_name VARCHAR(50) NOT NULL,
+    phone VARCHAR(20) NOT NULL,
+    car_number VARCHAR(20) NOT NULL,
+    car_stamp VARCHAR(20) NOT NULL,
+    car_model VARCHAR(20) NOT NULL
+);
+
+-- 2. Создание таблицы car_wash
+CREATE TABLE car_wash (
+    car_wash_id INTEGER PRIMARY KEY,
+    phone INTEGER NOT NULL,
+    address VARCHAR(100) NOT NULL,
+    type_of_service VARCHAR(100) NOT NULL
+);
+
+-- 3. Создание таблицы car_washer
+CREATE TABLE car_washer (
+    car_washer_id INTEGER PRIMARY KEY,
+    car_wash_id INTEGER NOT NULL,
+    phone NUMERIC NOT NULL,
+    full_name VARCHAR(50) NOT NULL,
+    FOREIGN KEY (car_wash_id) REFERENCES car_wash(car_wash_id)
+);
+
+-- 4. Создание таблицы "order"
+-- Используем кавычки, так как order - зарезервированное слово в PostgreSQL
+CREATE TABLE "order" (
+    order_id INTEGER PRIMARY KEY,
+    customer_id INTEGER NOT NULL,
+    order_date VARCHAR(10) NOT NULL,
+    order_cost NUMERIC NOT NULL,
+    car_washer_id INTEGER NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customer(customer_id),
+    FOREIGN KEY (car_washer_id) REFERENCES car_washer(car_washer_id)
+);
+```
+
+## Заполнение таблиц данными
+
+### Таблица customer
+```sql
+INSERT INTO customer (customer_id, full_name, phone, car_number, car_stamp, car_model) VALUES
+(1, 'Mega Petr Sem', '8593658236', '123456-0V', 'Toyota', 'Prius'),
+(2, 'Och van silov', '8593655573', '654322-VB', 'Toyota', 'Harrier'),
+(3, 'Tokov ya Stepanov', '8593582573', '2a4375-tV', 'Honda', 'Accord'),
+(4, 'Shiov Fedor Mosin', '8599572173', '572947-PT', 'Mazda', 'x4');
+```
+
+### Таблица car_wash
+```sql
+INSERT INTO car_wash (car_wash_id, phone, address, type_of_service) VALUES
+(1, 845334789, 'Irkutsk, Neulitsa St., 12', 'dry cleaning'),
+(2, 845333789, 'Irkutsk, Nevskogo St., 15/4', 'washing'),
+(3, 845336789, 'Irkutsk, Nevskogo St., 20', 'dry cleaning'),
+(4, 845333785, 'Irkutsk, Angeles St., 1', 'dry cleaning');
+```
+
+### Таблица car_washer
+```sql
+INSERT INTO car_washer (car_washer_id, car_wash_id, phone, full_name) VALUES
+(1, 1, 8987654321, 'Los Petr Ivanov'),
+(2, 3, 8975634072, 'Fid Alexey Petrov'),
+(3, 4, 8975636092, 'Wid Fedor Makrov'),
+(4, 2, 8975635257, 'Pos Ivan Iqragim');
+```
+
+### Таблица order
+```sql
+INSERT INTO "order" (order_id, customer_id, order_date, order_cost, car_washer_id) VALUES
+(1, 1, '12.09 2025', 350, 3),
+(2, 2, '12.09 2025', 750, 4),
+(3, 3, '16.09 2025', 1200, 1),
+(4, 4, '14.09 2025', 550, 2);
+```
