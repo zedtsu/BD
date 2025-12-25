@@ -259,3 +259,204 @@ WHERE
 GROUP BY cw.address
 ORDER BY total_revenue DESC;
 ```
+
+# Лабораторная работа 5
+
+## Создание триггерных функций
+
+```sql
+-- Таблица для журналирования всех изменений
+CREATE TABLE IF NOT EXISTS change_log (
+    log_id SERIAL PRIMARY KEY,
+    table_name VARCHAR(100) NOT NULL,
+    operation VARCHAR(10) NOT NULL CHECK (operation IN ('INSERT', 'UPDATE', 'DELETE')),
+    record_id INTEGER,
+    old_data JSONB,
+    new_data JSONB,
+    change_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    username VARCHAR(100) DEFAULT CURRENT_USER NOT NULL,
+    application_name VARCHAR(100) DEFAULT current_setting('application_name', true)
+);
+
+-- Индексы для ускорения поиска в журнале
+CREATE INDEX idx_change_log_table ON change_log(table_name);
+CREATE INDEX idx_change_log_time ON change_log(change_time);
+CREATE INDEX idx_change_log_operation ON change_log(operation);
+CREATE INDEX idx_change_log_record ON change_log(table_name, record_id);
+
+
+-- ТРИГГЕР 1: Удаление мойщиков при удалении автомойки
+CREATE OR REPLACE FUNCTION delete_car_washers_on_car_wash_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE NOTICE 'Триггер delete_car_washers_on_car_wash_delete: удаление мойщиков автомойки ID=%', OLD.car_wash_id;
+    
+    -- Удаляем всех мойщиков, работавших на этой автомойке
+    DELETE FROM car_washer WHERE car_wash_id = OLD.car_wash_id;
+    
+    RAISE NOTICE 'Удалены все мойщики автомойки ID=%', OLD.car_wash_id;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trig_cascade_delete_car_washer
+BEFORE DELETE ON car_wash
+FOR EACH ROW
+EXECUTE FUNCTION delete_car_washers_on_car_wash_delete();
+
+COMMENT ON FUNCTION delete_car_washers_on_car_wash_delete() IS 'Удаляет всех мойщиков при удалении автомойки';
+COMMENT ON TRIGGER trig_cascade_delete_car_washer ON car_wash IS 'Каскадное удаление мойщиков при удалении автомойки';
+
+-- ТРИГГЕР 2: Удаление заказов при удалении клиента
+CREATE OR REPLACE FUNCTION delete_orders_on_customer_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE NOTICE 'Триггер delete_orders_on_customer_delete: удаление заказов клиента ID=%', OLD.customer_id;
+    
+    -- Удаляем все заказы этого клиента
+    DELETE FROM "order" WHERE customer_id = OLD.customer_id;
+    
+    RAISE NOTICE 'Удалены все заказы клиента ID=%', OLD.customer_id;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trig_cascade_delete_orders
+BEFORE DELETE ON customer
+FOR EACH ROW
+EXECUTE FUNCTION delete_orders_on_customer_delete();
+
+COMMENT ON FUNCTION delete_orders_on_customer_delete() IS 'Удаляет все заказы при удалении клиента';
+COMMENT ON TRIGGER trig_cascade_delete_orders ON customer IS 'Каскадное удаление заказов при удалении клиента';
+
+-- ТРИГГЕР 3: Удаление заказов при удалении мойщика
+CREATE OR REPLACE FUNCTION delete_orders_on_car_washer_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE NOTICE 'Триггер delete_orders_on_car_washer_delete: удаление заказов мойщика ID=%', OLD.car_washer_id;
+    
+    -- Удаляем все заказы, назначенные этому мойщику
+    DELETE FROM "order" WHERE car_washer_id = OLD.car_washer_id;
+    
+    RAISE NOTICE 'Удалены все заказы мойщика ID=%', OLD.car_washer_id;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trig_cascade_delete_orders_by_washer
+BEFORE DELETE ON car_washer
+FOR EACH ROW
+EXECUTE FUNCTION delete_orders_on_car_washer_delete();
+
+COMMENT ON FUNCTION delete_orders_on_car_washer_delete() IS 'Удаляет все заказы при удалении мойщика';
+COMMENT ON TRIGGER trig_cascade_delete_orders_by_washer ON car_washer IS 'Каскадное удаление заказов при удалении мойщика';
+
+
+-- Функция для логирования изменений в любой таблице
+CREATE OR REPLACE FUNCTION log_changes()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_old_data JSONB;
+    v_new_data JSONB;
+    v_record_id INTEGER;
+BEGIN
+    -- Определяем данные в зависимости от типа операции
+    IF TG_OP = 'INSERT' THEN
+        v_new_data = row_to_json(NEW);
+        v_record_id = NEW.id;
+    ELSIF TG_OP = 'UPDATE' THEN
+        v_old_data = row_to_json(OLD);
+        v_new_data = row_to_json(NEW);
+        v_record_id = NEW.id;
+    ELSIF TG_OP = 'DELETE' THEN
+        v_old_data = row_to_json(OLD);
+        v_record_id = OLD.id;
+    END IF;
+    
+    -- Определяем ID записи (ищем поле с суффиксом _id)
+    IF TG_OP IN ('INSERT', 'UPDATE') THEN
+        IF NEW.car_wash_id IS NOT NULL THEN
+            v_record_id = NEW.car_wash_id;
+        ELSIF NEW.car_washer_id IS NOT NULL THEN
+            v_record_id = NEW.car_washer_id;
+        ELSIF NEW.customer_id IS NOT NULL THEN
+            v_record_id = NEW.customer_id;
+        ELSIF NEW.order_id IS NOT NULL THEN
+            v_record_id = NEW.order_id;
+        END IF;
+    ELSIF TG_OP = 'DELETE' THEN
+        IF OLD.car_wash_id IS NOT NULL THEN
+            v_record_id = OLD.car_wash_id;
+        ELSIF OLD.car_washer_id IS NOT NULL THEN
+            v_record_id = OLD.car_washer_id;
+        ELSIF OLD.customer_id IS NOT NULL THEN
+            v_record_id = OLD.customer_id;
+        ELSIF OLD.order_id IS NOT NULL THEN
+            v_record_id = OLD.order_id;
+        END IF;
+    END IF;
+    
+    -- Вставляем запись в журнал
+    INSERT INTO change_log (
+        table_name,
+        operation,
+        record_id,
+        old_data,
+        new_data,
+        username,
+        application_name
+    ) VALUES (
+        TG_TABLE_NAME,
+        TG_OP,
+        v_record_id,
+        v_old_data,
+        v_new_data,
+        CURRENT_USER,
+        current_setting('application_name', true)
+    );
+    
+    RAISE NOTICE 'Триггер log_changes: записано изменение в таблице % (операция: %)', 
+        TG_TABLE_NAME, TG_OP;
+    
+    -- Возвращаем соответствующую запись
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+
+-- Журналирование для таблицы car_wash
+CREATE TRIGGER trig_log_car_wash_changes
+AFTER INSERT OR UPDATE OR DELETE ON car_wash
+FOR EACH ROW
+EXECUTE FUNCTION log_changes();
+
+COMMENT ON TRIGGER trig_log_car_wash_changes ON car_wash IS 'Журналирование изменений в таблице автомоек';
+
+-- Журналирование для таблицы car_washer
+CREATE TRIGGER trig_log_car_washer_changes
+AFTER INSERT OR UPDATE OR DELETE ON car_washer
+FOR EACH ROW
+EXECUTE FUNCTION log_changes();
+
+COMMENT ON TRIGGER trig_log_car_washer_changes ON car_washer IS 'Журналирование изменений в таблице мойщиков';
+
+-- Журналирование для таблицы customer
+CREATE TRIGGER trig_log_customer_changes
+AFTER INSERT OR UPDATE OR DELETE ON customer
+FOR EACH ROW
+EXECUTE FUNCTION log_changes();
+
+COMMENT ON TRIGGER trig_log_customer_changes ON customer IS 'Журналирование изменений в таблице клиентов';
+
+-- Журналирование для таблицы order
+CREATE TRIGGER trig_log_order_changes
+AFTER INSERT OR UPDATE OR DELETE ON "order"
+FOR EACH ROW
+EXECUTE FUNCTION log_changes();
+
+COMMENT ON TRIGGER trig_log_order_changes ON "order" IS 'Журналирование изменений в таблице заказов';
+```
